@@ -34,40 +34,66 @@ with st.sidebar.expander("📝 Editar Lista"):
 
 lista_favoritos = [str(e).lower() for e in nuevo_df['Equipos'].tolist()]
 
-# --- OBTENER PARTIDOS ---
+# --- OBTENER PARTIDOS (Hoy y Próximos) ---
 @st.cache_data(ttl=300)
 def cargar_datos():
+    # 'dateFrom' y 'dateTo' nos aseguran ver un rango más amplio (hoy y mañana)
     url = 'https://api.football-data.org/v4/matches'
-    res = requests.get(url, headers=HEADERS)
-    return res.json().get('matches', [])
+    try:
+        res = requests.get(url, headers=HEADERS)
+        if res.status_code == 200:
+            return res.json().get('matches', [])
+        else:
+            st.error(f"Error de API: {res.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"Fallo de conexión: {e}")
+        return []
 
-st.title("⚽ Resultados en Vivo")
+st.title("⚽ Cartelera de Fútbol")
 partidos = cargar_datos()
 
 if not partidos:
-    st.info("No hay partidos para hoy.")
+    st.info("No hay partidos destacados programados para hoy en las ligas principales.")
+    st.caption("Nota: La versión gratuita cubre Premier League, LaLiga, Serie A, Bundesliga, Ligue 1 y Champions.")
 else:
-    for match in partidos:
-        home = match['home_team_name'] = match['homeTeam']['name']
-        away = match['away_team_name'] = match['awayTeam']['name']
-        
-        # ¿Es un partido favorito?
-        es_fav = any(f in home.lower() or f in away.lower() for f in lista_favoritos)
-        
-        # Diseño de la tarjeta
-        with st.container(border=True):
-            if es_fav:
-                st.write("🌟 **PARTIDO SEGUIDO**")
-            
-            c1, c2, c3 = st.columns([2, 1, 2])
-            with c1:
-                st.image(match['homeTeam']['crest'], width=40)
-                st.markdown(f"**{home}**")
-            with c2:
-                g_h = match['score']['fullTime']['home'] if match['score']['fullTime']['home'] is not None else "-"
-                g_a = match['score']['fullTime']['away'] if match['score']['fullTime']['away'] is not None else "-"
-                st.markdown(f"### {g_h} - {g_a}")
-                st.caption(match['status'])
-            with c3:
-                st.image(match['awayTeam']['crest'], width=40)
-                st.markdown(f"**{away}**")
+    # Separamos favoritos de los demás para que aparezcan ARRIBA
+    fav_matches = []
+    other_matches = []
+
+    for m in partidos:
+        home = m['homeTeam']['name']
+        away = m['awayTeam']['name']
+        if any(f in home.lower() or f in away.lower() for f in lista_favoritos):
+            fav_matches.append(m)
+        else:
+            other_matches.append(m)
+
+    # 1. MOSTRAR FAVORITOS PRIMERO
+    if fav_matches:
+        st.subheader("🌟 Tus Partidos Seguidos")
+        for match in fav_matches:
+            with st.container(border=True):
+                st.info(f"📍 {match['competition']['name']}")
+                c1, c2, c3 = st.columns([2, 1, 2])
+                with c1:
+                    st.image(match['homeTeam']['crest'], width=40)
+                    st.write(f"**{match['homeTeam']['name']}**")
+                with c2:
+                    score = match['score']['fullTime']
+                    st.markdown(f"### {score['home'] if score['home'] is not None else ''} - {score['away'] if score['away'] is not None else ''}")
+                    st.caption(match['status'])
+                with c3:
+                    st.image(match['awayTeam']['crest'], width=40)
+                    st.write(f"**{match['awayTeam']['name']}**")
+
+    # 2. MOSTRAR EL RESTO (EL GLOBAL)
+    st.divider()
+    st.subheader("🌍 Todos los Resultados")
+    for match in other_matches:
+        with st.expander(f"{match['homeTeam']['name']} vs {match['awayTeam']['name']} ({match['competition']['name']})"):
+            c1, c2, c3 = st.columns(3)
+            c1.write(f"🏠 {match['homeTeam']['name']}")
+            score = match['score']['fullTime']
+            c2.write(f"🏁 {score['home'] if score['home'] is not None else 0} - {score['away'] if score['away'] is not None else 0}")
+            c3.write(f"🚀 {match['awayTeam']['name']}")
