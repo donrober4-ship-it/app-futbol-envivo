@@ -1,68 +1,73 @@
 import streamlit as st
 import requests
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
-# Configuración de la página
-st.set_page_config(page_title="Mi App de Fútbol", page_icon="⚽", layout="wide")
+# Configuración visual
+st.set_page_config(page_title="Futbol App Pro", page_icon="⚽", layout="wide")
 
-# --- SEGURIDAD Y LLAVE ---
-# Si guardaste tu llave en 'Secrets' de Streamlit (recomendado):
-API_KEY = st.secrets["API_KEY"] if "API_KEY" in st.secrets else 'b595c09921444acb96654e5552b4c4eb'
-HEADERS = { 'X-Auth-Token': API_KEY }
+# --- CONEXIÓN Y LLAVES ---
+# Se asume que pondrás tu API_KEY en los Secrets de Streamlit
+FOOTBALL_API_KEY = st.secrets["API_KEY"]
+HEADERS = { 'X-Auth-Token': FOOTBALL_API_KEY }
 
-# --- BARRA LATERAL (FAVORITOS) ---
+# Conector a la base de datos (Google Sheets oculto)
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- LÓGICA DE FAVORITOS (INTERFAZ) ---
 st.sidebar.title("⭐ Mis Favoritos")
-st.sidebar.write("Escribe los equipos que quieres resaltar:")
 
-# Aquí es donde aplicamos tu preferencia de guardar datos
-equipos_fav_input = st.sidebar.text_input(
-    "Equipos (ej: Real Madrid, Millonarios, Colombia)", 
-    value="Real Madrid, Barcelona"
-)
-# Limpiamos la lista para que sea fácil de buscar
-favoritos = [e.strip().lower() for e in equipos_fav_input.split(",")]
+# 1. Leer favoritos actuales (ttl=0 para refrescar al instante)
+try:
+    df_favs = conn.read(worksheet="Sheet1", ttl=0)
+except:
+    # Si la hoja está vacía, creamos una estructura básica
+    df_favs = pd.DataFrame({"Equipos": ["Real Madrid", "Colombia"]})
 
-st.title("⚽ Resultados Internacionales")
+# 2. Editor interactivo en la App
+with st.sidebar.expander("📝 Editar Lista"):
+    nuevo_df = st.data_editor(df_favs, num_rows="dynamic", use_container_width=True)
+    if st.sidebar.button("💾 Guardar Cambios"):
+        conn.update(worksheet="Sheet1", data=nuevo_df)
+        st.sidebar.success("¡Favoritos guardados!")
+        st.rerun()
 
-# Función para obtener datos
-@st.cache_data(ttl=300) # Guarda los datos por 5 minutos para no agotar tu API gratis
-def obtener_partidos():
+lista_favoritos = [str(e).lower() for e in nuevo_df['Equipos'].tolist()]
+
+# --- OBTENER PARTIDOS ---
+@st.cache_data(ttl=300)
+def cargar_datos():
     url = 'https://api.football-data.org/v4/matches'
-    try:
-        response = requests.get(url, headers=HEADERS)
-        return response.json().get('matches', [])
-    except:
-        return []
+    res = requests.get(url, headers=HEADERS)
+    return res.json().get('matches', [])
 
-partidos = obtener_partidos()
+st.title("⚽ Resultados en Vivo")
+partidos = cargar_datos()
 
 if not partidos:
-    st.warning("No hay partidos para mostrar en este momento.")
+    st.info("No hay partidos para hoy.")
 else:
-    # --- MOSTRAR PARTIDOS ---
     for match in partidos:
-        home = match['homeTeam']['name']
-        away = match['awayTeam']['name']
+        home = match['home_team_name'] = match['homeTeam']['name']
+        away = match['away_team_name'] = match['awayTeam']['name']
         
-        # Lógica de resaltado
-        es_favorito = any(fav in home.lower() or fav in away.lower() for fav in favoritos)
+        # ¿Es un partido favorito?
+        es_fav = any(f in home.lower() or f in away.lower() for f in lista_favoritos)
         
-        # Si es favorito, ponemos un borde dorado o un color distinto
+        # Diseño de la tarjeta
         with st.container(border=True):
-            if es_favorito:
-                st.markdown("### ⭐ PARTIDO DESTACADO")
+            if es_fav:
+                st.write("🌟 **PARTIDO SEGUIDO**")
             
-            col1, col2, col3 = st.columns([2, 1, 2])
-            
-            with col1:
-                st.image(match['homeTeam']['crest'], width=60)
-                st.subheader(home)
-            
-            with col2:
-                s_h = match['score']['fullTime']['home'] if match['score']['fullTime']['home'] is not None else "-"
-                s_a = match['score']['fullTime']['away'] if match['score']['fullTime']['away'] is not None else "-"
-                st.markdown(f"<h1 style='text-align: center;'>{s_h} - {s_a}</h1>", unsafe_allow_html=True)
-                st.caption(f"<p style='text-align: center;'>{match['status']}</p>", unsafe_allow_html=True)
-            
-            with col3:
-                st.image(match['awayTeam']['crest'], width=60)
-                st.subheader(away)
+            c1, c2, c3 = st.columns([2, 1, 2])
+            with c1:
+                st.image(match['homeTeam']['crest'], width=40)
+                st.markdown(f"**{home}**")
+            with c2:
+                g_h = match['score']['fullTime']['home'] if match['score']['fullTime']['home'] is not None else "-"
+                g_a = match['score']['fullTime']['away'] if match['score']['fullTime']['away'] is not None else "-"
+                st.markdown(f"### {g_h} - {g_a}")
+                st.caption(match['status'])
+            with c3:
+                st.image(match['awayTeam']['crest'], width=40)
+                st.markdown(f"**{away}**")
