@@ -1,0 +1,23 @@
+import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
+
+# Conexión a la base de datos (Google Sheets actuará como disco duro oculto)
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 1. CARGAR FAVORITOS ACTUALES
+df_favoritos = conn.read(worksheet="Favoritos", ttl=0) # ttl=0 para que siempre lea lo último
+
+st.sidebar.title("⚙️ Gestión de Favoritos")
+
+# 2. INTERFAZ DE EDICIÓN (Aquí es donde eliges tus equipos)
+with st.sidebar.expander("Editar mis equipos"):
+    edited_df = st.data_editor(df_favoritos, num_rows="dynamic", use_container_width=True)
+    
+    if st.button("Guardar Cambios"):
+        conn.update(worksheet="Favoritos", data=edited_df)
+        st.success("¡Favoritos actualizados!")
+        st.rerun()
+
+# 3. FILTRADO AUTOMÁTICO
+lista_favoritos = [str(e).lower() for e in edited_df['Equipos'].tolist()]
